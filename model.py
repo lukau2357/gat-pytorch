@@ -1,12 +1,19 @@
 import torch
 from utils import load_data
+from typing import List, Tuple
+
+NONLINEARITY_DICT = {
+    "elu": torch.nn.ELU(),
+    "identity": torch.nn.Identity()
+}
 
 class GATLayer(torch.nn.Module):
     def __init__(self, input_dim : int, output_dim : int, attention_heads : int,
                  leaky_relu_alpha : float = 0.2, 
                  dropout_p : float = 0, 
                  concat_last : bool = True,
-                 nonlinearity = "elu"):
+                 nonlinearity = "elu",
+                 residual : bool = True):
         super().__init__()
 
         self.input_dim = input_dim
@@ -17,30 +24,55 @@ class GATLayer(torch.nn.Module):
         self.dropout_p = dropout_p
         self.concat_last = concat_last
         self.nonlinearity = nonlinearity
+        self.residual = residual
 
         # Create attention mask from adjacency matrix.
         self.W = torch.nn.Parameter(torch.zeros((input_dim, attention_heads * output_dim), dtype = torch.float32))
         self.A_left = torch.nn.Parameter(torch.zeros((attention_heads, output_dim, 1), dtype = torch.float32))
         self.A_right = torch.nn.Parameter(torch.zeros((attention_heads, output_dim, 1), dtype = torch.float32))
 
+        self.residual_projection = None
+        # If input and output dimensions allow addition, no need to apply seperate mapping, save on computation and number of parameters
+        if self.residual:
+            self.residual_projection = torch.nn.Parameter(torch.zeros((input_dim, attention_heads * output_dim), dtype = torch.float32))
+
         self.lrelu = torch.nn.LeakyReLU(negative_slope = leaky_relu_alpha)
-        self.attention_dropout = torch.nn.Dropout(p = self.dropout_p)
+        self.dropout = torch.nn.Dropout(p = self.dropout_p)
         
         # TODO: More elegant way to write this, instead of if statement for every key
-        if self.nonlinearity == "elu":
-            self.nonlinearity_layer = torch.nn.ELU()
+        self.nonlinearity_layer = NONLINEARITY_DICT[self.nonlinearity]
+        self._init_weights()
         
-        else:
-            self.nonlinearity_layer = torch.nn.Identity()
-
     def _init_weights(self):
+        '''
         # Manual Kaiming Normal fan_in initialization, since we want all attention head linear maps to be initialized independently.
         leaky_relu_gain = (1 / (1 + self.leaky_relu_alpha))
         torch.nn.init.normal_(self.W, mean = 0, std = (leaky_relu_gain / self.input_dim) ** 0.5)
         torch.nn.init.normal_(self.A_left, mean = 0, std = (leaky_relu_gain / self.output_dim))
         torch.nn.init.normal_(self.A_right, mean = 0, std = (leaky_relu_gain / self.output_dim))
+        '''
+        # Using Xavier uniform initialization as it is default TF initialization to follow the paper as closely as possible
+        # TODO: Apply correct gain for LeakyReLU?
+        '''
+        torch.nn.init.xavier_uniform_(self.W)
+        torch.nn.init.xavier_uniform_(self.A_left)
+        torch.nn.init.xavier_uniform_(self.A_right)
+        if self.residual_projection is not None:
+            torch.nn.init.xavier_uniform_(self.residual_projection)
+        '''
+        
+        torch.nn.init.kaiming_normal_(self.W, a = self.leaky_relu_alpha)
+        torch.nn.init.kaiming_normal_(self.A_left, a = self.leaky_relu_alpha)
+        torch.nn.init.kaiming_normal_(self.A_right, a = self.leaky_relu_alpha)
+
+        if self.residual_projection is not None:
+            torch.nn.init.kaiming_normal(self.residual_projection, a = self.leaky_relu_alpha)
     
-    def forward(self, input_proj : torch.Tensor, edge_index : torch.Tensor) -> torch.Tensor:
+    def forward(self, data : Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        input_proj = data[0]
+        edge_index = data[1]
+
+        input_proj = self.dropout(input_proj)
         N = input_proj.shape[0]
         H = torch.matmul(input_proj, self.W).view((N, self.attention_heads, -1)).permute((1, 0, 2)) # [attention_heads, N, output_dim]
         H_s = torch.matmul(H, self.A_left).squeeze(-1) # [attention_heads, N]
@@ -51,8 +83,15 @@ class GATLayer(torch.nn.Module):
 
         # Compute attention scores accross all attention heads for each node.
         edge_scores_norm = self._topological_softmax(edge_scores, N, edge_index[0]) # [attention_heads, E]
-        edge_scores_norm = self.attention_dropout(edge_scores_norm) # [attention_heads, E]
+        edge_scores_norm = self.dropout(edge_scores_norm) # [attention_heads, E]
         per_head_mappings = self._edge_scores_norm_to_per_head_mappings(edge_scores_norm, H_sf, N, edge_index[0]) # [attention_heads, N, output_dim]
+
+        if self.residual:
+            if per_head_mappings.shape[-1] != input_proj.shape[-1]:
+                per_head_mappings += torch.matmul(input_proj, self.residual_projection).view((N, self.attention_heads, -1)).permute((1, 0, 2))
+
+            else:
+                per_head_mappings += input_proj.unsqueeze(0)
 
         if self.concat_last:
             res = per_head_mappings.permute(1, 0, 2).contiguous().view(N, self.attention_heads * self.output_dim) # [N, attention_heads * output_dim]
@@ -62,7 +101,7 @@ class GATLayer(torch.nn.Module):
         
         # For concatenation, according to equations (5) in https://arxiv.org/pdf/1710.10903, authors apply nonlinearity before concatenating embeddings accross 
         # different attention heads. For simplicity, we apply nonlinearity only at the final step, whether mean reduction or concatenation is used.
-        return self.nonlinearity_layer(res)
+        return self.nonlinearity_layer(res), edge_index
 
     def _select_scores(self, H : torch.Tensor, H_s : torch.Tensor, H_t : torch.Tensor, edge_index : torch.Tensor):
         source_index = edge_index[0]
@@ -94,10 +133,55 @@ class GATLayer(torch.nn.Module):
         res.scatter_add_(1, source_index_brd, attention_prod)
         return res # [attention_heads, N, output_dim]
     
-if __name__ == "__main__":
-    path = r"C:\Users\Korisnik\Desktop\gnn\cora"
-    device = "cuda"
-    feature_matrix, node_labels, edge_index = load_data(path, device)
-    input_dim = feature_matrix.shape[1]
-    layer = GATLayer(input_dim, 8, attention_heads = 8).to(device)
-    print(layer.forward(feature_matrix, edge_index).shape)
+class GAT(torch.nn.Module):
+    def __init__(self, input_dim : int, heads_per_layer : List[int], features_per_layer : List[int], 
+                 residual : bool = True, 
+                 dropout_p : float = 0.6, 
+                 nonlinearity : str = "elu"):
+        super().__init__()
+        self.input_dim = input_dim
+        self.heads_per_layer = heads_per_layer
+        self.features_per_layer = features_per_layer
+        self.residual = residual
+        self.dropout_p = dropout_p
+        self.nonlinearity = nonlinearity
+
+        layers = [GATLayer(input_dim, features_per_layer[0], 
+                           attention_heads = heads_per_layer[0], 
+                           dropout_p = dropout_p, 
+                           concat_last = len(heads_per_layer) > 1, 
+                           residual = residual,
+                           nonlinearity = "identity" if len(heads_per_layer) == 1 else nonlinearity)]
+        
+        for i in range(1, len(heads_per_layer)):
+            layers.append(GATLayer(heads_per_layer[i - 1] * features_per_layer[i - 1], features_per_layer[i],
+                                   attention_heads = heads_per_layer[i],
+                                   dropout_p = dropout_p,
+                                   concat_last = i < len(heads_per_layer) - 1,
+                                   residual = residual,
+                                   nonlinearity = "identity" if i == len(heads_per_layer) - 1 else nonlinearity))
+        
+        self.layers = torch.nn.Sequential(*layers)
+
+    def forward(self, data : Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        # Omit edge index from forward pass result
+        return self.layers.forward(data)[0]
+    
+    def to_dict(self):
+        d = {
+            "input_dim": self.input_dim,
+            "heads_per_layer": self.heads_per_layer,
+            "features_per_layer": self.features_per_layer,
+            "residual": self.residual,
+            "dropout_p": self.dropout_p,
+            "nonlinearity": self.nonlinearity,
+        }
+
+        return d
+    
+    @classmethod
+    def from_dict(cls, d):
+        return cls(d["input_dim"], d["heads_per_layer"], d["features_per_layer"],
+                    residual = d["residual"], 
+                    dropout_p = d["dropout_p"], 
+                    nonlinearity = d["nonlinearity"])

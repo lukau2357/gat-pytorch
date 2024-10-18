@@ -7,5 +7,6 @@ CSR (Compressed sparse row) format: Encodes a sparse matrix with 3 one dimension
 LIL (List of Lists) format: One list per row, elements of lists are tuples (column_index, value).
 
 # TODO
-- Move ELU nonlinearity out of GAT layer?
 - Add visualizations for degree distribution, etc.
+- Add Tensorboard logging
+- Implement patience mechanism perhaps? They did that in the paper, but even without it results were reproduced.

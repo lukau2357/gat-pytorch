@@ -15,9 +15,9 @@ CLASS_TO_ID = {
 }
 
 # Train/Val/Test split according to GAT/GCN authors
-CORA_TRAIN_RANGE = list(range(140))
-CORA_VAL_RANGE = list(range(140, 640))
-CORA_TEST_RANGE = list(range(1708, 1708 + 1000))
+CORA_TRAIN_RANGE = [0, 140]  # we're using the first 140 nodes as the training nodes
+CORA_VAL_RANGE = [140, 140 + 500]
+CORA_TEST_RANGE = [1708, 1708 + 1000]
 
 def normalize_feature_matrix(x):
     if sp.issparse(x):
@@ -49,22 +49,21 @@ def load_data(path, device):
     node_labels = torch.tensor(node_labels, dtype = torch.long, device = device)
 
     source_indices, target_indices = [], []
+    edges_set = set()
 
     for source_vertex in adj_dict.keys():
-            for target_vertex in adj_dict[source_vertex]:
+        for target_vertex in adj_dict[source_vertex]:
+            if (source_vertex, target_vertex) not in edges_set:
                 source_indices.append(source_vertex)
                 target_indices.append(target_vertex)
+                edges_set.add((source_vertex, target_vertex))
                 
-                # Add loops, if they already don't exist
-                # Attention allows a vertex to attend to itself!
-                # TODO: adj_dict[source_vertex] is a list, for huge graphs could be time consuming. Optimize?
-                if source_vertex not in adj_dict[source_vertex]:
-                    source_indices.append(source_vertex)
-                    target_indices.append(source_vertex)
+        # Add loops, if they already don't exist
+        # Attention allows a vertex to attend to itself!
+        # TODO: adj_dict[source_vertex] is a list, for huge graphs could be time consuming. Optimize?
+        if source_vertex not in adj_dict[source_vertex]:
+            source_indices.append(source_vertex)
+            target_indices.append(source_vertex)
         
     edge_index = torch.tensor(np.stack([np.array(source_indices), np.array(target_indices)], axis = 0), device = device, dtype = torch.long)
     return feature_matrix, node_labels, edge_index
-
-if __name__ == "__main__":
-    path = r"C:\Users\Korisnik\Desktop\gnn\cora"
-    device = "cuda"
