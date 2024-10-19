@@ -43,6 +43,8 @@ class GATLayer(torch.nn.Module):
         self.nonlinearity_layer = NONLINEARITY_DICT[self.nonlinearity]
         self._init_weights()
         
+        # For visualization purposes
+        self.attention_weights = None
     def _init_weights(self):
         '''
         # Manual Kaiming Normal fan_in initialization, since we want all attention head linear maps to be initialized independently.
@@ -84,6 +86,7 @@ class GATLayer(torch.nn.Module):
         # Compute attention scores accross all attention heads for each node.
         edge_scores_norm = self._topological_softmax(edge_scores, N, edge_index[0]) # [attention_heads, E]
         edge_scores_norm = self.dropout(edge_scores_norm) # [attention_heads, E]
+        self.attention_weights = edge_scores_norm.detach() # Save attention weights, assumption is that the model has been put in evaluation mode before this!
         per_head_mappings = self._edge_scores_norm_to_per_head_mappings(edge_scores_norm, H_sf, N, edge_index[0]) # [attention_heads, N, output_dim]
 
         if self.residual:

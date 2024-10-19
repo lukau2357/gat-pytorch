@@ -1,2 +1,5 @@
 __pycache__/**
+# Terminal shortcuts
 shortcuts.txt
+# Tensorboard runs
+runs/**

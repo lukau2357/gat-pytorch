@@ -67,3 +67,6 @@ def load_data(path, device):
         
     edge_index = torch.tensor(np.stack([np.array(source_indices), np.array(target_indices)], axis = 0), device = device, dtype = torch.long)
     return feature_matrix, node_labels, edge_index
+
+def accuracy(pred : torch.Tensor, true : torch.Tensor) -> float:
+    return ((torch.eq(torch.argmax(pred, dim = -1), true)).sum().item()) / true.shape[0]
