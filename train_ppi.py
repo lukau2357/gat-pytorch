@@ -4,10 +4,11 @@ import os
 import json
 import time
 
-from utils import load_data_cora, CORA_TRAIN_RANGE, CORA_TEST_RANGE, CORA_VAL_RANGE, accuracy
+from utils import load_ppi_partition
 from model import GAT
 from typing import Tuple
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.metrics import f1_score
 
 def create_checkpoint(model_dir : str, epoch : int, model : GAT, optimizer : torch.optim.Optimizer):
     d = model.to_dict()
@@ -62,6 +63,7 @@ def parse_args():
     args.add_argument("--random_seed", type = int, default = 41, help = "Specify reproducibility seed.")
     args.add_argument("--log_every", type = int, default = 100, help = "Specify logging frequency.")
     args.add_argument("--checkpoint_period", type = int, default = 100, help = "Specify checkpointing period.")
+    args.add_argument("--batch_size", type = int, default = 1, help = "Specify the batch size for training. Batch size for inductive GNN training determines number of graphs that are simultaneously forwarded through the network.")
 
     return args.parse_args()
 
@@ -71,22 +73,18 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.random_seed)
 
-    train_indices = torch.arange(CORA_TRAIN_RANGE[0], CORA_TRAIN_RANGE[1], dtype = torch.long, device = device)
-    val_indices = torch.arange(CORA_VAL_RANGE[0], CORA_VAL_RANGE[1], dtype = torch.long, device = device)
-    test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype = torch.long, device = device)
-
-    feature_matrix, node_labels, edge_index = load_data_cora(args.data_dir, device)
-    train_labels = node_labels.index_select(0, train_indices)
-    val_labels = node_labels.index_select(0, val_indices)
-    test_labels = node_labels.index_select(0, test_indices)
+    train_dl, num_features, num_classes = load_ppi_partition(args.data_dir, "train", batch_size = args.batch_size)
+    val_dl, _, _ = load_ppi_partition(args.data_dir, "valid")
+    test_dl, _, _ = load_ppi_partition(args.data_dir, "train")
     prev_epoch = 0
+
     writer = SummaryWriter()
 
     if args.from_checkpoint:
-        model, optimizer, prev_epoch = from_checkpoint(args.model_dir, feature_matrix.shape[-1])
+        model, optimizer, prev_epoch = from_checkpoint(args.model_dir, num_features)
 
     else:
-        model = GAT(feature_matrix.shape[-1], 
+        model = GAT(num_features, 
                     heads_per_layer = args.attention_heads_per_layer,
                     features_per_layer = args.num_features_per_layer,
                     dropout_p = args.dropout_p,
@@ -96,7 +94,6 @@ if __name__ == "__main__":
         # to reproduce their results as closely as possible
         optimizer = torch.optim.Adam(model.parameters(), lr = args.learning_rate, weight_decay = args.weight_decay)
 
-    data = (feature_matrix, edge_index)
     loss = torch.nn.CrossEntropyLoss()
 
     for epoch in range(prev_epoch, args.epochs):

@@ -7,7 +7,7 @@ import numpy as np
 import os
 
 from model import GAT
-from utils import load_data
+from utils import load_data_cora
 from sklearn.manifold import TSNE
 
 def parse_args():
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    feature_matrix, node_labels, edge_index = load_data(args.data_dir, device)
+    feature_matrix, node_labels, edge_index = load_data_cora(args.data_dir, device)
 
     model = from_checkpoint(args.model_dir, feature_matrix.shape[-1]).to(device)
     model.eval()
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     color_array = np.array([class_color_map[cls] for cls in node_labels_np])
     fig, ax = plt.subplots()
 
-    print("Visualizing edge attentions in the last GAT layer")
+    print(f"Visualizing edge attentions in {args.attention_layer_index}-th GAT layer.")
     start = time.time()
     # Sum attentions for particular edge accross all attention heads
     edge_attentions = edge_attentions.sum(dim = 0)
@@ -89,6 +89,7 @@ if __name__ == "__main__":
         source_vertex = edge_index_np[0][i]
         target_vertex = edge_index_np[1][i]
         key = (min(source_vertex, target_vertex), max(source_vertex, target_vertex))
+        # Add attention coefficients for a single edge in both directions
         attentions[key] = attentions.get(key, 0) + edge_attentions[i].item()
 
     for key, value in attentions.items():
@@ -106,6 +107,9 @@ if __name__ == "__main__":
                     linewidth = 0.2)
     
     print(f"Done visualizing edge attentions. Processing time: {(time.time() - start):.4f}s.")
+
+    print(f"Visualizing self attentions in {args.attention_layer_index}-th GAT layer.")
+    start = time.time()
     self_attentions = extract_self_attentions(edge_index_np, edge_attentions)
     
     ax.scatter(gat_embeddings_tsne[:, 0], gat_embeddings_tsne[:, 1], 
@@ -113,6 +117,7 @@ if __name__ == "__main__":
         c = color_array,
         edgecolors = [(max(0, 1 - alpha), max(0, 1 - alpha), max(0, 1 - alpha)) for alpha in self_attentions], 
         linewidth = 1.5)
-
+    
+    print(f"Done visualizing self attentions. Processing time: {(time.time() - start):.4f}s.")
     ax.axis("off")
     plt.show()

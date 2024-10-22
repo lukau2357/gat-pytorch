@@ -1,5 +1,4 @@
 import torch
-from utils import load_data
 from typing import List, Tuple
 
 NONLINEARITY_DICT = {
@@ -46,29 +45,14 @@ class GATLayer(torch.nn.Module):
         # For visualization purposes
         self.attention_weights = None
     def _init_weights(self):
-        '''
-        # Manual Kaiming Normal fan_in initialization, since we want all attention head linear maps to be initialized independently.
-        leaky_relu_gain = (1 / (1 + self.leaky_relu_alpha))
-        torch.nn.init.normal_(self.W, mean = 0, std = (leaky_relu_gain / self.input_dim) ** 0.5)
-        torch.nn.init.normal_(self.A_left, mean = 0, std = (leaky_relu_gain / self.output_dim))
-        torch.nn.init.normal_(self.A_right, mean = 0, std = (leaky_relu_gain / self.output_dim))
-        '''
-        # Using Xavier uniform initialization as it is default TF initialization to follow the paper as closely as possible
-        # TODO: Apply correct gain for LeakyReLU?
-        '''
-        torch.nn.init.xavier_uniform_(self.W)
-        torch.nn.init.xavier_uniform_(self.A_left)
-        torch.nn.init.xavier_uniform_(self.A_right)
-        if self.residual_projection is not None:
-            torch.nn.init.xavier_uniform_(self.residual_projection)
-        '''
-        
+        # TODO: In my opinion, initialization should be applied seperately for each attention head, rather than parameterizing 
+        # shapes self.W, self.A_left, self.A_right. I did not however want to deviate from authors that much, although they use Xavier uniform init instead.
         torch.nn.init.kaiming_normal_(self.W, a = self.leaky_relu_alpha)
         torch.nn.init.kaiming_normal_(self.A_left, a = self.leaky_relu_alpha)
         torch.nn.init.kaiming_normal_(self.A_right, a = self.leaky_relu_alpha)
 
         if self.residual_projection is not None:
-            torch.nn.init.kaiming_normal(self.residual_projection, a = self.leaky_relu_alpha)
+            torch.nn.init.kaiming_normal_(self.residual_projection, a = self.leaky_relu_alpha)
     
     def forward(self, data : Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         input_proj = data[0]

@@ -1,10 +1,15 @@
 ## Introduction
 Reproduction of [Graph Attention Networks, Veličković et. al. 2017](https://arxiv.org/pdf/1710.10903) paper, inspired by [Aleksa Gordić's repository](https://github.com/gordicaleksa/pytorch-GAT). GAT implementation was verified against CORA (for transductive tasks) and PPI (for inductive tasks), and in both cases reported results were achieved, ~82% accuracy on CORA and ~0.937 micro-averaged F1 on PPI.
 
-I used the preprocessed version of CORA, which can be found [here](https://github.com/gordicaleksa/pytorch-GAT/tree/main/data/cora). Actually, aforementioned CORA datasets is included in this repository, because it is very small, consists of 3 pickle dumps. **Insert information about PPI**. Both training scripts have Tensorboard support. Additionally, I also reproduced graph embedding figure 
+## Table of content
+* [CORA training](#cora-training)
+* [CORA visualization](#cora-visualization)
+* [PPI training](#ppi-training)
 
 ## Cora training
-To train a GAT on cora, you can use **train_cora.py**:
+I used the preprocessed version of CORA, which can be found [here](https://github.com/gordicaleksa/pytorch-GAT/tree/main/data/cora). Preprocessing was done by [Aleksa Gordić](https://github.com/gordicaleksa), so credits to him once again. Aforementioned CORA datasets is included in this repository as well, because it is very small, consists of 3 pickle dumps. Both training scripts have Tensorboard support. Additionally, I also reproduced graph embedding visualization, Figure 2 from the original paper, you can see then in the next section.
+
+To train a GAT on CORA, you can use **train_cora.py**:
 ```
 usage: train_cora.py [-h] --attention_heads_per_layer ATTENTION_HEADS_PER_LAYER [ATTENTION_HEADS_PER_LAYER ...] --num_features_per_layer NUM_FEATURES_PER_LAYER [NUM_FEATURES_PER_LAYER ...]
                      [--residual [RESIDUAL]] [--dropout_p DROPOUT_P] [--from_checkpoint [FROM_CHECKPOINT]] [--learning_rate LEARNING_RATE] [--weight_decay WEIGHT_DECAY] [--random_seed RANDOM_SEED]        
@@ -40,6 +45,8 @@ options:
                         Specify checkpointing period.
 ```
 
+When specyfing number of features for the last layer, it is important to take the properties of the dataset into consideration. For instance, CORA embeddings should be 7-dimensional, because they are used as logits for 7-class classification problem. Likewise, PPI embeddings should be 121-dimensional, because it is a 121 multi-label classification problem. Concatenation is used to aggregate attention results in all but the last layer, in which mean reduction is used, as specified by the authors of the paper.
+
 ## Cora visualization
 Once a GAT is trained on CORA, you can visualize node embeddings with **visualization_cora.py**:
 ```
@@ -63,3 +70,8 @@ As the original GAT paper, we use [t-SNE](https://en.wikipedia.org/wiki/T-distri
 
 ![no figure](./figs/cora_tsne.png)
 Edge thicnkess coressponds to attention coefficients in the given layer. Thicker edge arround nodes corresponds to higher self-attention in the given layer. From here, we can observe that for the most part, nodes of the same class tend to cluster together. In particular, labels for cora are: **Case Based, Genetic algorithms, Neural networks, Probabilistic methods, Reinforcement learning, Rule learning theory**. However ,for [this](https://github.com/gordicaleksa/pytorch-GAT/tree/main/data) particular instance of the Cora dataset I was not able to find correct class id to class label mapping. Also, this is viewed as a single label classification problem, but we can see that previous labels are highly correlated (for example, a paper about reinforcement learning is very likely to use some kind of neural network), which could explain why the previus plot is not perfectly clustered.
+
+Training with hyperparameters given in the paper is really fast, at least it was for me, using one NVIDIA GTX 3060, 10000 epochs was conducted in $\approx$ 1 minute.
+
+## PPI training
+Preprocessed version of PPI - Protein/Protein Interaction dataset can be found [here](https://data.dgl.ai/dataset/ppi.zip), and more information about it on [this link](https://docs.dgl.ai/en/0.9.x/generated/dgl.data.PPIDataset.html).
