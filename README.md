@@ -1,10 +1,12 @@
 ## Introduction
 Reproduction of [Graph Attention Networks, Veličković et. al. 2017](https://arxiv.org/pdf/1710.10903) paper, inspired by [Aleksa Gordić's repository](https://github.com/gordicaleksa/pytorch-GAT). GAT implementation was verified against CORA (for transductive tasks) and PPI (for inductive tasks), and in both cases reported results were achieved, ~82% accuracy on CORA and ~0.937 micro-averaged F1 on PPI.
 
-## Table of content
+## Table of contents
 * [CORA training](#cora-training)
 * [CORA visualization](#cora-visualization)
 * [PPI training](#ppi-training)
+
+In [notes.md](https://github.com/lukau2357/gat-pytorch/blob/main/notes.md) you can find some notes I've written during the development of this project, you might find them useful.
 
 ## Cora training
 I used the preprocessed version of CORA, which can be found [here](https://github.com/gordicaleksa/pytorch-GAT/tree/main/data/cora). Preprocessing was done by [Aleksa Gordić](https://github.com/gordicaleksa), so credits to him once again. Aforementioned CORA datasets is included in this repository as well, because it is very small, consists of 3 pickle dumps. Both training scripts have Tensorboard support. Additionally, I also reproduced graph embedding visualization, Figure 2 from the original paper, you can see then in the next section.

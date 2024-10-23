@@ -31,7 +31,7 @@ def normalize_feature_matrix(x):
         sum_features[np.isinf(sum_features)] = 1.0 # Zero sum of features could lead to zero division
         return sp.diags(sum_features).dot(x)
     
-    # TODO: Consider dense feature matrix, should be easier
+    # TODO: Consider dense feature matrix, should be easier?
     else:
         pass
 
