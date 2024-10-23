@@ -3,8 +3,9 @@ import argparse
 import os
 import json
 import time
+import numpy as np
 
-from utils import load_ppi_partition
+from utils import load_ppi_partition, PPIDataLoader
 from model import GAT
 from typing import Tuple
 from torch.utils.tensorboard import SummaryWriter
@@ -67,15 +68,44 @@ def parse_args():
 
     return args.parse_args()
 
+def forward_loader(model : GAT, loader : PPIDataLoader, device : str):
+    predictions = []
+    real_labels = []
+
+    losses = []
+    loss_fn = torch.nn.BCEWithLogitsLoss()
+
+    with torch.no_grad():
+        for batch in loader:
+            node_features = batch[0].to(device)
+            node_labels = batch[1].to(device)
+            edge_index = batch[2].to(device)
+
+            logits = model.forward((node_features, edge_index))
+            l = loss_fn(logits, node_labels)
+            losses.append(l.item())
+
+            # By sigmoid definition, when logit is > 0 implied probability is > 0.5, which is the prediction threshold
+            preds = (logits > 0).cpu().numpy()
+            predictions.append(preds)
+            real_labels.append(node_labels.cpu().numpy())
+
+    predictions = np.concatenate(predictions)
+    real_labels = np.concatenate(real_labels)
+    loss = sum(losses) / len(losses)
+    return loss, f1_score(predictions, real_labels, average = "micro")
+
 if __name__ == "__main__":
     args = parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.random_seed)
 
+    assert args.num_features_per_layer[-1] == 121, f"Expected 121 dimensional output from the network, as PPI is a 121 multi-label classification problem!"
+
     train_dl, num_features, num_classes = load_ppi_partition(args.data_dir, "train", batch_size = args.batch_size)
     val_dl, _, _ = load_ppi_partition(args.data_dir, "valid")
-    test_dl, _, _ = load_ppi_partition(args.data_dir, "train")
+    test_dl, _, _ = load_ppi_partition(args.data_dir, "test")
     prev_epoch = 0
 
     writer = SummaryWriter()
@@ -94,45 +124,39 @@ if __name__ == "__main__":
         # to reproduce their results as closely as possible
         optimizer = torch.optim.Adam(model.parameters(), lr = args.learning_rate, weight_decay = args.weight_decay)
 
-    loss = torch.nn.CrossEntropyLoss()
+    loss = torch.nn.BCEWithLogitsLoss()
+    start = time.time()
 
     for epoch in range(prev_epoch, args.epochs):
-        start = time.time()
-
         model.train()
-        logits = model.forward(data)
-        train_logits = logits.index_select(0, train_indices)
-        l = loss(train_logits, train_labels)
 
-        l.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+        for batch in train_dl:
+            node_features = batch[0].to(device)
+            node_labels = batch[1].to(device)
+            edge_index = batch[2].to(device)
+
+            logits = model.forward((node_features, edge_index))
+            l = loss(logits, node_labels)
+            l.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
         model.eval()
-        with torch.no_grad():
-            logits = model.forward(data)
 
-            train_logits = logits.index_select(0, train_indices)
-            train_loss = loss(train_logits, train_labels)
-            train_acc = accuracy(train_logits, train_labels)
+        train_loss, train_f1 = forward_loader(model, train_dl, device)
+        val_loss, val_f1 = forward_loader(model, val_dl, device)
 
-            val_logits = logits.index_select(0, val_indices)
-            val_acc = accuracy(val_logits, val_labels)
-            val_loss = loss(val_logits, val_labels)
+        writer.add_scalar("train_loss", train_loss, epoch)
+        writer.add_scalar("train_f1", train_f1, epoch)
+        writer.add_scalar("val_loss", val_loss, epoch)
+        writer.add_scalar("val_f1", val_f1, epoch)
 
-            writer.add_scalar("train_loss", train_loss, epoch)
-            writer.add_scalar("train_accuracy", train_acc, epoch)
-            writer.add_scalar("validation_loss", val_loss, epoch)
-            writer.add_scalar("validation_accuracy", val_acc, epoch)
-            
-            if (epoch + 1) % args.log_every == 0 or epoch == args.epochs - 1:
-                print(f"Epoch: {epoch + 1} --- Train step and inference time: {(time.time() - start):.4f}s. --- Train loss: {train_loss.item():.4f} --- Validation loss: {val_loss.item():.4f} --- Train accuracy: {train_acc:.4f} --- Val accuracy: {val_acc:.4f}")
-        
+        if (epoch + 1) % args.log_every == 0 or epoch == args.epochs - 1:
+            print(f"Epoch: {epoch + 1} --- Training and inference time up to this point: {(time.time() - start):.4f}s. --- Train loss: {train_loss:.4f} --- Validation loss: {val_loss:.4f} --- Train micro-averaged F1: {train_f1:.4f} --- Validation micro-averaged F1: {val_f1:.4f}")
+            start = time.time()
+
         if epoch % args.checkpoint_period == 0 or epoch == args.epochs - 1:
             create_checkpoint(args.model_dir, epoch + 1, model, optimizer)
     
-    model.eval()
-    logits = model.forward(data)
-    test_logits = logits.index_select(0, test_indices)
-    acc = accuracy(test_logits, test_labels)
-    print(f"Test accuracy: {acc:.4f}")
+    test_loss, test_f1 = forward_loader(model, test_dl, device)
+    print(f"Test micro-averaged F1: {test_f1:.4f}")

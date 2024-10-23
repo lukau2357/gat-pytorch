@@ -71,6 +71,8 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.random_seed)
 
+    assert args.num_features_per_layer[-1] == 7, f"Expected 7 dimensional output from the network, as CORA is a 7-label classification problem!"
+
     train_indices = torch.arange(CORA_TRAIN_RANGE[0], CORA_TRAIN_RANGE[1], dtype = torch.long, device = device)
     val_indices = torch.arange(CORA_VAL_RANGE[0], CORA_VAL_RANGE[1], dtype = torch.long, device = device)
     test_indices = torch.arange(CORA_TEST_RANGE[0], CORA_TEST_RANGE[1], dtype = torch.long, device = device)
@@ -99,9 +101,8 @@ if __name__ == "__main__":
     data = (feature_matrix, edge_index)
     loss = torch.nn.CrossEntropyLoss()
 
+    start = time.time()
     for epoch in range(prev_epoch, args.epochs):
-        start = time.time()
-
         model.train()
         logits = model.forward(data)
         train_logits = logits.index_select(0, train_indices)
@@ -129,7 +130,8 @@ if __name__ == "__main__":
             writer.add_scalar("validation_accuracy", val_acc, epoch)
             
             if (epoch + 1) % args.log_every == 0 or epoch == args.epochs - 1:
-                print(f"Epoch: {epoch + 1} --- Train step and inference time: {(time.time() - start):.4f}s. --- Train loss: {train_loss.item():.4f} --- Validation loss: {val_loss.item():.4f} --- Train accuracy: {train_acc:.4f} --- Val accuracy: {val_acc:.4f}")
+                print(f"Epoch: {epoch + 1} --- Training and inference time up to this point: {(time.time() - start):.4f}s. --- Train loss: {train_loss.item():.4f} --- Validation loss: {val_loss.item():.4f} --- Train accuracy: {train_acc:.4f} --- Val accuracy: {val_acc:.4f}")
+                start = time.time() # Will not accout for checkpoint creation, but it's sufficient.
         
         if epoch % args.checkpoint_period == 0 or epoch == args.epochs - 1:
             create_checkpoint(args.model_dir, epoch + 1, model, optimizer)
