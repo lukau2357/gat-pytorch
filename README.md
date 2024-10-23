@@ -1,5 +1,5 @@
 ## Introduction
-Reproduction of [Graph Attention Networks, Veličković et. al. 2017](https://arxiv.org/pdf/1710.10903) paper, inspired by [Aleksa Gordić's repository](https://github.com/gordicaleksa/pytorch-GAT). GAT implementation was verified against CORA (for transductive tasks) and PPI (for inductive tasks), and in both cases reported results were achieved, ~82% accuracy on CORA and ~0.937 micro-averaged F1 on PPI.
+Reproduction of [Graph Attention Networks, Veličković et. al. 2017](https://arxiv.org/pdf/1710.10903) paper, inspired by [Aleksa Gordić's repository](https://github.com/gordicaleksa/pytorch-GAT). GAT implementation was verified against CORA (for transductive tasks) and PPI (for inductive tasks), and in both cases reported results were achieved, $\approx 82$% accuracy on CORA and $\approx 0.97$ micro-averaged F1 on PPI.
 
 ## Table of contents
 * [CORA training](#cora-training)
